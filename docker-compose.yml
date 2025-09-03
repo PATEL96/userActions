@@ -8,5 +8,5 @@ services:
         environment:
             - PORT=${PORT}
             - DATABASE_URL=${DATABASE_URL}
-            - NODE_ENV=production
+            - NODE_ENV=${NODE_ENV}
         restart: unless-stopped
