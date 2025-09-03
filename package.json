@@ -1,0 +1,28 @@
+{
+    "name": "useractions",
+    "module": "index.ts",
+    "type": "module",
+    "private": true,
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/pg": "^8.15.5",
+        "drizzle-kit": "^0.31.4",
+        "tsx": "^4.20.5"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "scripts": {
+        "webhook": "bun run src/webhook.ts",
+        "start": "bun run src/webhook.ts",
+        "dev": "bun --hot run src/webhook.ts",
+        "generate": "drizzle-kit generate:pg",
+        "docker:build": "docker build -t useractions-webhook .",
+        "docker:run": "docker run -p 3000:3000 --env-file .env useractions-webhook"
+    },
+    "dependencies": {
+        "dotenv": "^17.2.2",
+        "drizzle-orm": "^0.44.5",
+        "pg": "^8.16.3"
+    }
+}
