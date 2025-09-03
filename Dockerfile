@@ -12,7 +12,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 # Expose the application port
-EXPOSE 3001
+EXPOSE 3000
 
 # Set the command to run the webhook server
-CMD ["bun", "run", "index.ts"]
+CMD ["bun", "start"]
