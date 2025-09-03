@@ -180,6 +180,11 @@ async function handleWebhook(req: Request) {
                         if (eventType === "deposit_confirmed") {
                             // Handle deposit_confirmed with amount-based rewards
                             let amount = 0;
+                            const txHash =
+                                data.txHash ||
+                                data.hash ||
+                                data.transactionHash ||
+                                null;
 
                             // Try to parse amount from different possible formats
                             if (data.amount) {
@@ -197,8 +202,40 @@ async function handleWebhook(req: Request) {
                             }
 
                             console.log(`Parsed deposit amount: ${amount}`);
+                            console.log(
+                                `Transaction hash: ${txHash || "None"}`,
+                            );
 
-                            if (amount > 0) {
+                            // Check if this is the same transaction hash as the last one
+                            let isDuplicateTransaction = false;
+                            if (txHash) {
+                                // Check if this hash matches user's lastTxHash
+                                if (userRecord.lastTxHash === txHash) {
+                                    console.log(
+                                        `Transaction ${txHash} already processed for user ${userAddress} - skipping reward`,
+                                    );
+                                    isDuplicateTransaction = true;
+                                } else {
+                                    // Update the user's lastTxHash
+                                    await db
+                                        .update(users)
+                                        .set({ lastTxHash: txHash })
+                                        .where(eq(users.address, userAddress));
+                                    console.log(
+                                        `Updated lastTxHash to ${txHash} for user ${userAddress}`,
+                                    );
+                                }
+                            } else {
+                                console.log(
+                                    `No transaction hash provided - proceeding with caution`,
+                                );
+                            }
+
+                            // Only award rewards for new transactions or if no hash was provided
+                            if (
+                                (!isDuplicateTransaction || !txHash) &&
+                                amount > 0
+                            ) {
                                 if (amount <= 1000) {
                                     // 10x rewards for amounts <= 1000
                                     rewardsToAdd = Math.floor(amount * 10);
@@ -290,6 +327,7 @@ async function handleWebhook(req: Request) {
             receivedAt: new Date().toISOString(),
             userAddress: userAddress || null,
             eventType: event,
+            txHash: data.txHash || data.hash || data.transactionHash || null,
             userRewards: userRewards,
         };
         console.log(`Sending response: ${JSON.stringify(response)}`);

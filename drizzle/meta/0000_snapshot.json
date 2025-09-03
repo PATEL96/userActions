@@ -1,6 +1,6 @@
 {
-  "id": "a65f9888-d4b0-4d03-ba8b-a20d71140b5e",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "ac8ac88f-0bbc-4d43-b17f-5acbfc342237",
+  "prevId": "a65f9888-d4b0-4d03-ba8b-a20d71140b5e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -78,6 +78,12 @@
           "primaryKey": false,
           "notNull": false,
           "default": 0
+        },
+        "last_tx_hash": {
+          "name": "last_tx_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

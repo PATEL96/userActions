@@ -13,6 +13,7 @@ import { relations } from "drizzle-orm";
 export const users = pgTable("users", {
     address: varchar({ length: 255 }).primaryKey().notNull(),
     rewards: integer().default(0),
+    lastTxHash: text("last_tx_hash"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
