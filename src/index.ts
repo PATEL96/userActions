@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { users, userActions } from "./db/schema";
 import "dotenv/config";
+import { eq } from "drizzle-orm";
 
 // Initialize database connection
 let pool: Pool;
@@ -101,45 +102,122 @@ async function handleWebhook(req: Request) {
         console.log(JSON.stringify(data, null, 2));
 
         // Process user data if available
+        // Extract user address outside the try block so it's available in the response
+        const userAddress =
+            data.userAddress ||
+            data.address ||
+            (data.user && data.user.address);
+
+        const event = data.event || data.type || "UNKNOWN_EVENT";
+
+        const amount = data.amount || null;
+
         try {
-            // Check if we have a user address in the data
-            const userAddress =
-                data.userAddress ||
-                data.address ||
-                (data.user && data.user.address);
-
-            const event = data.event || data.type || "UNKNOWN_EVENT";
-
             console.log(`Attempting to extract user address from data...`);
             console.log(`Found address: ${userAddress || "None"}`);
             console.log(`Found event: ${event || "None"}`);
+            console.log(`Found amount: ${amount || "None"}`);
 
             if (userAddress && typeof userAddress === "string") {
                 console.log(`Processing data for user: ${userAddress}`);
 
-                // Ensure user exists (upsert operation)
-                // await db
-                //     .insert(users)
-                //     .values({ address: userAddress })
-                //     .onConflictDoNothing({ target: users.address });
+                // Get event type
+                const eventType = data.event || data.type || "UNKNOWN_EVENT";
+                console.log(`Processing event: ${eventType}`);
 
-                // // Get action type and data
-                // const actionType =
-                //     data.actionType || data.type || "WEBHOOK_EVENT";
-                // const actionData =
-                //     typeof data === "object"
-                //         ? JSON.stringify(data)
-                //         : String(data);
+                // Ensure user exists in the database (upsert operation)
+                let initialRewards = 0;
+                if (eventType === "wallet_connected") {
+                    // For wallet_connected, check if this is first connection
+                    const existingUser = await db
+                        .select()
+                        .from(users)
+                        .where(eq(users.address, userAddress));
 
-                // // Insert the action
-                // await db.insert(userActions).values({
-                //     userAddress,
-                //     actionType,
-                //     actionData,
-                // });
+                    if (existingUser.length === 0) {
+                        // New user, award 1000 points for first connection
+                        initialRewards = 1000;
+                        console.log(
+                            `New user ${userAddress} connected - awarding 1000 points`,
+                        );
+                    }
+                }
 
-                // console.log(`Action recorded for user ${userAddress}`);
-                // console.log(`Database operation successful`);
+                // Create or update the user
+                await db
+                    .insert(users)
+                    .values({ address: userAddress, rewards: initialRewards })
+                    .onConflictDoUpdate({
+                        target: users.address,
+                        set:
+                            initialRewards > 0
+                                ? { rewards: initialRewards }
+                                : {},
+                    });
+
+                // Handle rewards based on event type
+                if (eventType !== "wallet_connected") {
+                    // Get current rewards for this user
+                    const userRecord = await db
+                        .select()
+                        .from(users)
+                        .where(eq(users.address, userAddress))
+                        .then((records) => records[0]);
+
+                    if (userRecord) {
+                        const currentRewards = userRecord.rewards || 0;
+                        let rewardsToAdd = 0;
+
+                        if (eventType === "deposit_confirmed") {
+                            // Handle deposit_confirmed with amount-based rewards
+                            const amount = parseFloat(data.amount) || 0;
+
+                            if (amount > 0) {
+                                if (amount <= 1000) {
+                                    // 10x rewards for amounts <= 1000
+                                    rewardsToAdd = Math.floor(amount * 10);
+                                    console.log(
+                                        `Awarding ${rewardsToAdd} points (10x) for deposit of ${amount}`,
+                                    );
+                                } else {
+                                    // 1:1 rewards for amounts > 1000
+                                    rewardsToAdd = Math.floor(amount);
+                                    console.log(
+                                        `Awarding ${rewardsToAdd} points (1:1) for deposit of ${amount}`,
+                                    );
+                                }
+                            }
+                        }
+
+                        // Update rewards if needed
+                        if (rewardsToAdd > 0) {
+                            await db
+                                .update(users)
+                                .set({ rewards: currentRewards + rewardsToAdd })
+                                .where(eq(users.address, userAddress));
+                            console.log(
+                                `Awarded ${rewardsToAdd} points to ${userAddress} for ${eventType}`,
+                            );
+                        }
+                    }
+                }
+
+                // Get action type and data
+                const actionType = eventType;
+                const actionData =
+                    typeof data === "object"
+                        ? JSON.stringify(data)
+                        : String(data);
+
+                // Insert the action
+                await db.insert(userActions).values({
+                    userAddress,
+                    actionType,
+                    actionData,
+                });
+
+                console.log(`Action recorded for user ${userAddress}`);
+                console.log(`Database operation successful`);
             } else {
                 console.log(
                     "No valid user address found in webhook data, skipping database insertion",
@@ -160,9 +238,28 @@ async function handleWebhook(req: Request) {
 
         // Return a success response
         console.log(`Webhook processing completed successfully`);
+
+        // Get current rewards for the user if available
+        let userRewards = 0;
+        if (userAddress && typeof userAddress === "string") {
+            try {
+                const userResult = await db
+                    .select()
+                    .from(users)
+                    .where(eq(users.address, userAddress));
+
+                if (userResult.length > 0 && userResult[0]?.rewards !== null) {
+                    userRewards = userResult[0]?.rewards || 0;
+                }
+            } catch (error) {
+                console.error("Error fetching user rewards:", error);
+            }
+        }
+
         const response = {
             success: true,
             receivedAt: new Date().toISOString(),
+            userRewards: userRewards,
         };
         console.log(`Sending response: ${JSON.stringify(response)}`);
         return new Response(JSON.stringify(response), {
