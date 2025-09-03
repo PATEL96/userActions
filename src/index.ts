@@ -109,7 +109,7 @@ async function handleWebhook(req: Request) {
             (data.user && data.user.address);
 
         const event = data.event || data.type || "UNKNOWN_EVENT";
-        const chainId = data.chainId || data.chain_id || "1"; // Default to Ethereum mainnet if not specified
+        const chainId = data.chainId || data.chain_id || "0"; // Default to Ethereum mainnet if not specified
 
         const amount = data.amount || null;
 
