@@ -13,12 +13,9 @@
         "typescript": "^5"
     },
     "scripts": {
-        "webhook": "bun run src/webhook.ts",
-        "start": "bun run src/webhook.ts",
-        "dev": "bun --hot run src/webhook.ts",
-        "generate": "drizzle-kit generate:pg",
-        "docker:build": "docker build -t useractions-webhook .",
-        "docker:run": "docker run -p 3000:3000 --env-file .env useractions-webhook"
+        "start": "bun run src/index.ts",
+        "dev": "bun --hot run src/index.ts",
+        "generate": "drizzle-kit generate:pg"
     },
     "dependencies": {
         "dotenv": "^17.2.2",
