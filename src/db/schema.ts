@@ -6,6 +6,8 @@ import {
     serial,
     numeric,
     integer,
+    unique,
+    primaryKey,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -19,17 +21,29 @@ export const users = pgTable("users", {
 });
 
 // Chain-specific user rewards table
-export const chainRewards = pgTable("chain_rewards", {
-    id: serial().primaryKey(),
-    userAddress: varchar({ length: 255 })
-        .notNull()
-        .references(() => users.address),
-    chainId: varchar({ length: 50 }).notNull(),
-    rewards: integer().default(0),
-    lastTxHash: text("last_tx_hash"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const chainRewards = pgTable(
+    "chain_rewards",
+    {
+        id: serial().primaryKey(),
+        userAddress: varchar({ length: 255 })
+            .notNull()
+            .references(() => users.address),
+        chainId: varchar({ length: 50 }).notNull(),
+        rewards: integer().default(0),
+        lastTxHash: text("last_tx_hash"),
+        createdAt: timestamp("created_at").defaultNow().notNull(),
+        updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    },
+    (table) => {
+        return {
+            // Add a unique constraint on userAddress and chainId
+            uniqueUserChain: unique("unique_user_chain_idx").on(
+                table.userAddress,
+                table.chainId,
+            ),
+        };
+    },
+);
 
 // Define relations for the users table
 export const usersRelations = relations(users, ({ many }) => ({

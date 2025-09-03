@@ -1,0 +1,1 @@
+ALTER TABLE "chain_rewards" ADD CONSTRAINT "unique_user_chain_idx" UNIQUE("userAddress","chainId");

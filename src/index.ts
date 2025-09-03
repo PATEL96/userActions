@@ -184,36 +184,65 @@ async function handleWebhook(req: Request) {
 
                 // Create or update chain-specific rewards
                 if (initialRewards > 0) {
-                    // If we have rewards to set, use onConflictDoUpdate
-                    await db
-                        .insert(chainRewards)
-                        .values({
+                    // Check if chain rewards already exist for this user and chain
+                    const existingChainReward = await db
+                        .select()
+                        .from(chainRewards)
+                        .where(
+                            and(
+                                eq(chainRewards.userAddress, userAddress),
+                                eq(chainRewards.chainId, chainId),
+                            ),
+                        );
+
+                    if (existingChainReward.length > 0) {
+                        // Update existing record with rewards
+                        await db
+                            .update(chainRewards)
+                            .set({ rewards: initialRewards })
+                            .where(
+                                eq(
+                                    chainRewards.id,
+                                    existingChainReward[0]?.id || 0,
+                                ),
+                            );
+                        console.log(
+                            `Updated rewards for existing chain record: ${initialRewards}`,
+                        );
+                    } else {
+                        // Insert new record
+                        await db.insert(chainRewards).values({
                             userAddress,
                             chainId,
                             rewards: initialRewards,
-                        })
-                        .onConflictDoUpdate({
-                            target: [
-                                chainRewards.userAddress,
-                                chainRewards.chainId,
-                            ],
-                            set: { rewards: initialRewards },
                         });
+                        console.log(
+                            `Inserted new chain record with rewards: ${initialRewards}`,
+                        );
+                    }
                 } else {
-                    // Otherwise just insert with onConflictDoNothing
-                    await db
-                        .insert(chainRewards)
-                        .values({
+                    // Check if chain rewards already exist for this user and chain
+                    const existingChainReward = await db
+                        .select()
+                        .from(chainRewards)
+                        .where(
+                            and(
+                                eq(chainRewards.userAddress, userAddress),
+                                eq(chainRewards.chainId, chainId),
+                            ),
+                        );
+
+                    if (existingChainReward.length === 0) {
+                        // Only insert if it doesn't exist yet
+                        await db.insert(chainRewards).values({
                             userAddress,
                             chainId,
                             rewards: 0,
-                        })
-                        .onConflictDoNothing({
-                            target: [
-                                chainRewards.userAddress,
-                                chainRewards.chainId,
-                            ],
                         });
+                        console.log(
+                            `Inserted new chain record with zero rewards`,
+                        );
+                    }
                 }
 
                 // Handle rewards based on event type
@@ -274,9 +303,9 @@ async function handleWebhook(req: Request) {
                                     isDuplicateTransaction = true;
                                 } else {
                                     // Update the chain record's lastTxHash
-                                    await db
-                                        .update(chainRewards)
-                                        .set({ lastTxHash: txHash })
+                                    const existingRecord = await db
+                                        .select()
+                                        .from(chainRewards)
                                         .where(
                                             and(
                                                 eq(
@@ -289,6 +318,18 @@ async function handleWebhook(req: Request) {
                                                 ),
                                             ),
                                         );
+
+                                    if (existingRecord.length > 0) {
+                                        await db
+                                            .update(chainRewards)
+                                            .set({ lastTxHash: txHash })
+                                            .where(
+                                                eq(
+                                                    chainRewards.id,
+                                                    existingRecord[0]?.id || 0,
+                                                ),
+                                            );
+                                    }
                                     console.log(
                                         `Updated lastTxHash to ${txHash} for user ${userAddress} on chain ${chainId}`,
                                     );
@@ -322,9 +363,9 @@ async function handleWebhook(req: Request) {
 
                         // Update chain-specific rewards if needed
                         if (rewardsToAdd > 0) {
-                            await db
-                                .update(chainRewards)
-                                .set({ rewards: currentRewards + rewardsToAdd })
+                            const chainRecordToUpdate = await db
+                                .select()
+                                .from(chainRewards)
                                 .where(
                                     and(
                                         eq(
@@ -334,6 +375,20 @@ async function handleWebhook(req: Request) {
                                         eq(chainRewards.chainId, chainId),
                                     ),
                                 );
+
+                            if (chainRecordToUpdate.length > 0) {
+                                await db
+                                    .update(chainRewards)
+                                    .set({
+                                        rewards: currentRewards + rewardsToAdd,
+                                    })
+                                    .where(
+                                        eq(
+                                            chainRewards.id,
+                                            chainRecordToUpdate[0]?.id || 0,
+                                        ),
+                                    );
+                            }
 
                             // Also update total rewards in the users table
                             // Get all chain rewards for this user
