@@ -144,16 +144,25 @@ async function handleWebhook(req: Request) {
                 }
 
                 // Create or update the user
-                await db
-                    .insert(users)
-                    .values({ address: userAddress, rewards: initialRewards })
-                    .onConflictDoUpdate({
-                        target: users.address,
-                        set:
-                            initialRewards > 0
-                                ? { rewards: initialRewards }
-                                : {},
-                    });
+                if (initialRewards > 0) {
+                    // If we have rewards to set, use onConflictDoUpdate
+                    await db
+                        .insert(users)
+                        .values({
+                            address: userAddress,
+                            rewards: initialRewards,
+                        })
+                        .onConflictDoUpdate({
+                            target: users.address,
+                            set: { rewards: initialRewards },
+                        });
+                } else {
+                    // Otherwise just insert with onConflictDoNothing
+                    await db
+                        .insert(users)
+                        .values({ address: userAddress, rewards: 0 })
+                        .onConflictDoNothing({ target: users.address });
+                }
 
                 // Handle rewards based on event type
                 if (eventType !== "wallet_connected") {
@@ -170,7 +179,24 @@ async function handleWebhook(req: Request) {
 
                         if (eventType === "deposit_confirmed") {
                             // Handle deposit_confirmed with amount-based rewards
-                            const amount = parseFloat(data.amount) || 0;
+                            let amount = 0;
+
+                            // Try to parse amount from different possible formats
+                            if (data.amount) {
+                                // Handle both numeric and string values
+                                if (typeof data.amount === "number") {
+                                    amount = data.amount;
+                                } else if (typeof data.amount === "string") {
+                                    // Remove any non-numeric characters except decimal point
+                                    const cleanedAmount = data.amount.replace(
+                                        /[^\d.-]/g,
+                                        "",
+                                    );
+                                    amount = parseFloat(cleanedAmount) || 0;
+                                }
+                            }
+
+                            console.log(`Parsed deposit amount: ${amount}`);
 
                             if (amount > 0) {
                                 if (amount <= 1000) {
@@ -250,6 +276,9 @@ async function handleWebhook(req: Request) {
 
                 if (userResult.length > 0 && userResult[0]?.rewards !== null) {
                     userRewards = userResult[0]?.rewards || 0;
+                    console.log(
+                        `Current rewards for ${userAddress}: ${userRewards}`,
+                    );
                 }
             } catch (error) {
                 console.error("Error fetching user rewards:", error);
@@ -259,6 +288,8 @@ async function handleWebhook(req: Request) {
         const response = {
             success: true,
             receivedAt: new Date().toISOString(),
+            userAddress: userAddress || null,
+            eventType: event,
             userRewards: userRewards,
         };
         console.log(`Sending response: ${JSON.stringify(response)}`);
