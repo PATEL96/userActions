@@ -108,8 +108,11 @@ async function handleWebhook(req: Request) {
                 data.address ||
                 (data.user && data.user.address);
 
+            const event = data.event || data.type || "UNKNOWN_EVENT";
+
             console.log(`Attempting to extract user address from data...`);
             console.log(`Found address: ${userAddress || "None"}`);
+            console.log(`Found event: ${event || "None"}`);
 
             if (userAddress && typeof userAddress === "string") {
                 console.log(`Processing data for user: ${userAddress}`);

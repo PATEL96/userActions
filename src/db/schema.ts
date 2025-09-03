@@ -1,9 +1,18 @@
-import { pgTable, varchar, text, timestamp, serial } from "drizzle-orm/pg-core";
+import {
+    pgTable,
+    varchar,
+    text,
+    timestamp,
+    serial,
+    numeric,
+    integer,
+} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // Users table with address as primary key
 export const users = pgTable("users", {
     address: varchar({ length: 255 }).primaryKey().notNull(),
+    rewards: integer().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -15,7 +24,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 // User actions table that references user address
 export const userActions = pgTable("user_actions", {
-    id: serial("id").primaryKey(),
+    id: serial().primaryKey(),
     userAddress: varchar({ length: 255 })
         .notNull()
         .references(() => users.address),
