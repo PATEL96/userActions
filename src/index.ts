@@ -1,9 +1,9 @@
 // import { Serve } from "bun";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { users, userActions } from "./db/schema";
+import { users, userActions, chainRewards } from "./db/schema";
 import "dotenv/config";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 // Initialize database connection
 let pool: Pool;
@@ -109,6 +109,7 @@ async function handleWebhook(req: Request) {
             (data.user && data.user.address);
 
         const event = data.event || data.type || "UNKNOWN_EVENT";
+        const chainId = data.chainId || data.chain_id || "1"; // Default to Ethereum mainnet if not specified
 
         const amount = data.amount || null;
 
@@ -127,54 +128,110 @@ async function handleWebhook(req: Request) {
 
                 // Ensure user exists in the database (upsert operation)
                 let initialRewards = 0;
+                // Handle rewards based on event type
                 if (eventType === "wallet_connected") {
-                    // For wallet_connected, check if this is first connection
+                    // Check if user already exists to determine if this is first connection
                     const existingUser = await db
                         .select()
                         .from(users)
                         .where(eq(users.address, userAddress));
+                    const isNewUser = existingUser.length === 0;
 
-                    if (existingUser.length === 0) {
-                        // New user, award 1000 points for first connection
+                    // Check if chain rewards exist for this chain
+                    const existingChainReward = await db
+                        .select()
+                        .from(chainRewards)
+                        .where(
+                            and(
+                                eq(chainRewards.userAddress, userAddress),
+                                eq(chainRewards.chainId, chainId),
+                            ),
+                        );
+                    const isNewChain = existingChainReward.length === 0;
+
+                    // Check if wallet_connected event has been recorded for this user (regardless of chain)
+                    const walletConnectedExists = await db
+                        .select()
+                        .from(userActions)
+                        .where(
+                            and(
+                                eq(userActions.userAddress, userAddress),
+                                eq(userActions.actionType, "wallet_connected"),
+                            ),
+                        );
+
+                    const isFirstConnection =
+                        walletConnectedExists.length === 0;
+
+                    if (isFirstConnection) {
+                        // First wallet connection ever, award 1000 points
                         initialRewards = 1000;
                         console.log(
-                            `New user ${userAddress} connected - awarding 1000 points`,
+                            `First-time wallet connection for user ${userAddress} - awarding 1000 points (chain: ${chainId})`,
+                        );
+                    } else {
+                        console.log(
+                            `User ${userAddress} has already connected wallet before - no rewards (chain: ${chainId})`,
                         );
                     }
                 }
 
                 // Create or update the user
+                await db
+                    .insert(users)
+                    .values({ address: userAddress })
+                    .onConflictDoNothing({ target: users.address });
+
+                // Create or update chain-specific rewards
                 if (initialRewards > 0) {
                     // If we have rewards to set, use onConflictDoUpdate
                     await db
-                        .insert(users)
+                        .insert(chainRewards)
                         .values({
-                            address: userAddress,
+                            userAddress,
+                            chainId,
                             rewards: initialRewards,
                         })
                         .onConflictDoUpdate({
-                            target: users.address,
+                            target: [
+                                chainRewards.userAddress,
+                                chainRewards.chainId,
+                            ],
                             set: { rewards: initialRewards },
                         });
                 } else {
                     // Otherwise just insert with onConflictDoNothing
                     await db
-                        .insert(users)
-                        .values({ address: userAddress, rewards: 0 })
-                        .onConflictDoNothing({ target: users.address });
+                        .insert(chainRewards)
+                        .values({
+                            userAddress,
+                            chainId,
+                            rewards: 0,
+                        })
+                        .onConflictDoNothing({
+                            target: [
+                                chainRewards.userAddress,
+                                chainRewards.chainId,
+                            ],
+                        });
                 }
 
                 // Handle rewards based on event type
                 if (eventType !== "wallet_connected") {
-                    // Get current rewards for this user
-                    const userRecord = await db
+                    // Get current chain-specific rewards for this user
+                    const chainRecord = await db
                         .select()
-                        .from(users)
-                        .where(eq(users.address, userAddress))
+                        .from(chainRewards)
+                        .where(
+                            and(
+                                eq(chainRewards.userAddress, userAddress),
+                                eq(chainRewards.chainId, chainId),
+                            ),
+                        )
                         .then((records) => records[0]);
 
-                    if (userRecord) {
-                        const currentRewards = userRecord.rewards || 0;
+                    if (chainRecord) {
+                        const currentRewards = chainRecord.rewards || 0;
                         let rewardsToAdd = 0;
 
                         if (eventType === "deposit_confirmed") {
@@ -209,20 +266,31 @@ async function handleWebhook(req: Request) {
                             // Check if this is the same transaction hash as the last one
                             let isDuplicateTransaction = false;
                             if (txHash) {
-                                // Check if this hash matches user's lastTxHash
-                                if (userRecord.lastTxHash === txHash) {
+                                // Check if this hash matches chain record's lastTxHash
+                                if (chainRecord.lastTxHash === txHash) {
                                     console.log(
-                                        `Transaction ${txHash} already processed for user ${userAddress} - skipping reward`,
+                                        `Transaction ${txHash} already processed for user ${userAddress} on chain ${chainId} - skipping reward`,
                                     );
                                     isDuplicateTransaction = true;
                                 } else {
-                                    // Update the user's lastTxHash
+                                    // Update the chain record's lastTxHash
                                     await db
-                                        .update(users)
+                                        .update(chainRewards)
                                         .set({ lastTxHash: txHash })
-                                        .where(eq(users.address, userAddress));
+                                        .where(
+                                            and(
+                                                eq(
+                                                    chainRewards.userAddress,
+                                                    userAddress,
+                                                ),
+                                                eq(
+                                                    chainRewards.chainId,
+                                                    chainId,
+                                                ),
+                                            ),
+                                        );
                                     console.log(
-                                        `Updated lastTxHash to ${txHash} for user ${userAddress}`,
+                                        `Updated lastTxHash to ${txHash} for user ${userAddress} on chain ${chainId}`,
                                     );
                                 }
                             } else {
@@ -252,14 +320,47 @@ async function handleWebhook(req: Request) {
                             }
                         }
 
-                        // Update rewards if needed
+                        // Update chain-specific rewards if needed
                         if (rewardsToAdd > 0) {
                             await db
-                                .update(users)
+                                .update(chainRewards)
                                 .set({ rewards: currentRewards + rewardsToAdd })
+                                .where(
+                                    and(
+                                        eq(
+                                            chainRewards.userAddress,
+                                            userAddress,
+                                        ),
+                                        eq(chainRewards.chainId, chainId),
+                                    ),
+                                );
+
+                            // Also update total rewards in the users table
+                            // Get all chain rewards for this user
+                            const allChainRewards = await db
+                                .select({ rewards: chainRewards.rewards })
+                                .from(chainRewards)
+                                .where(
+                                    eq(chainRewards.userAddress, userAddress),
+                                );
+
+                            // Sum up all chain rewards
+                            const totalRewards = allChainRewards.reduce(
+                                (sum, record) => sum + (record.rewards || 0),
+                                0,
+                            );
+
+                            // Update the total in users table
+                            await db
+                                .update(users)
+                                .set({ rewards: totalRewards })
                                 .where(eq(users.address, userAddress));
+
                             console.log(
-                                `Awarded ${rewardsToAdd} points to ${userAddress} for ${eventType}`,
+                                `Awarded ${rewardsToAdd} points to ${userAddress} on chain ${chainId} for ${eventType}`,
+                            );
+                            console.log(
+                                `Updated total rewards to ${totalRewards}`,
                             );
                         }
                     }
@@ -269,7 +370,7 @@ async function handleWebhook(req: Request) {
                 const actionType = eventType;
                 const actionData =
                     typeof data === "object"
-                        ? JSON.stringify(data)
+                        ? JSON.stringify({ ...data, chainId }) // Ensure chainId is included in action data
                         : String(data);
 
                 // Insert the action
@@ -304,8 +405,11 @@ async function handleWebhook(req: Request) {
 
         // Get current rewards for the user if available
         let userRewards = 0;
+        let chainRewardsValue = 0;
+
         if (userAddress && typeof userAddress === "string") {
             try {
+                // Get total rewards
                 const userResult = await db
                     .select()
                     .from(users)
@@ -314,7 +418,28 @@ async function handleWebhook(req: Request) {
                 if (userResult.length > 0 && userResult[0]?.rewards !== null) {
                     userRewards = userResult[0]?.rewards || 0;
                     console.log(
-                        `Current rewards for ${userAddress}: ${userRewards}`,
+                        `Current total rewards for ${userAddress}: ${userRewards}`,
+                    );
+                }
+
+                // Get chain-specific rewards
+                const chainResult = await db
+                    .select()
+                    .from(chainRewards)
+                    .where(
+                        and(
+                            eq(chainRewards.userAddress, userAddress),
+                            eq(chainRewards.chainId, chainId),
+                        ),
+                    );
+
+                if (
+                    chainResult.length > 0 &&
+                    chainResult[0]?.rewards !== null
+                ) {
+                    chainRewardsValue = chainResult[0]?.rewards || 0;
+                    console.log(
+                        `Current chain ${chainId} rewards for ${userAddress}: ${chainRewardsValue}`,
                     );
                 }
             } catch (error) {
@@ -327,8 +452,10 @@ async function handleWebhook(req: Request) {
             receivedAt: new Date().toISOString(),
             userAddress: userAddress || null,
             eventType: event,
+            chainId: chainId,
             txHash: data.txHash || data.hash || data.transactionHash || null,
-            userRewards: userRewards,
+            totalRewards: userRewards,
+            chainRewards: chainRewardsValue,
         };
         console.log(`Sending response: ${JSON.stringify(response)}`);
         return new Response(JSON.stringify(response), {

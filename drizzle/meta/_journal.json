@@ -1,13 +1,20 @@
 {
-    "version": "7",
-    "dialect": "postgresql",
-    "entries": [
-        {
-            "idx": 0,
-            "version": "7",
-            "when": 1756918799766,
-            "tag": "0000_aspiring_the_initiative",
-            "breakpoints": true
-        }
-    ]
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1756918799766,
+      "tag": "0000_aspiring_the_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1756920335766,
+      "tag": "0001_ambitious_silver_centurion",
+      "breakpoints": true
+    }
+  ]
 }

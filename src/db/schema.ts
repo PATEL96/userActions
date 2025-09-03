@@ -18,9 +18,31 @@ export const users = pgTable("users", {
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Chain-specific user rewards table
+export const chainRewards = pgTable("chain_rewards", {
+    id: serial().primaryKey(),
+    userAddress: varchar({ length: 255 })
+        .notNull()
+        .references(() => users.address),
+    chainId: varchar({ length: 50 }).notNull(),
+    rewards: integer().default(0),
+    lastTxHash: text("last_tx_hash"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Define relations for the users table
 export const usersRelations = relations(users, ({ many }) => ({
     actions: many(userActions),
+    chainRewards: many(chainRewards),
+}));
+
+// Define relations for chain rewards
+export const chainRewardsRelations = relations(chainRewards, ({ one }) => ({
+    user: one(users, {
+        fields: [chainRewards.userAddress],
+        references: [users.address],
+    }),
 }));
 
 // User actions table that references user address
