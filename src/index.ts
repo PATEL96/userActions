@@ -21,7 +21,7 @@ function initializeDb() {
 
 // Simple webhook server
 const server = Bun.serve({
-    port: process.env.PORT || 3000,
+    port: process.env.PORT || 3001,
 
     fetch(req) {
         const url = new URL(req.url);
