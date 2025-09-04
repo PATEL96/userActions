@@ -45,6 +45,11 @@ const server = Bun.serve({
             return handleWebhook(req);
         }
 
+        // Get user details endpoint
+        if (url.pathname.startsWith("/users") && req.method === "GET") {
+            return handleGetUsers(req);
+        }
+
         // Health check endpoint
         if (url.pathname === "/health") {
             console.log("Health check requested");
@@ -58,6 +63,73 @@ const server = Bun.serve({
 });
 
 // Handle incoming webhook data
+// Handle get users request
+async function handleGetUsers(req: Request) {
+    try {
+        initializeDb();
+        const url = new URL(req.url);
+        const userAddress = url.pathname.split("/").pop();
+
+        // Get specific user if address is provided
+        if (userAddress && userAddress !== "users") {
+            const userData = await db
+                .select()
+                .from(users)
+                .where(eq(users.address, userAddress));
+
+            if (userData.length === 0) {
+                return new Response(
+                    JSON.stringify({ error: "User not found" }),
+                    {
+                        status: 404,
+                        headers: { "Content-Type": "application/json" },
+                    },
+                );
+            }
+
+            // Get user's chain rewards if available
+            const userChainRewards = await db
+                .select()
+                .from(chainRewards)
+                .where(eq(chainRewards.userAddress, userAddress));
+
+            // Get user's actions if available
+            const userActionsData = await db
+                .select()
+                .from(userActions)
+                .where(eq(userActions.userAddress, userAddress));
+
+            // Combine all user data
+            const response = {
+                user: userData[0],
+                chainRewards: userChainRewards,
+                actions: userActionsData,
+            };
+
+            return new Response(JSON.stringify(response), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+
+        // Get all users if no specific address is provided
+        const allUsers = await db.select().from(users);
+        return new Response(JSON.stringify(allUsers), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error retrieving user data:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to retrieve user data" }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            },
+        );
+    }
+}
+
 async function handleWebhook(req: Request) {
     try {
         // Initialize DB connection if not already done
