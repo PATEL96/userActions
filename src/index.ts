@@ -154,21 +154,7 @@ async function handleWebhook(req: Request) {
 
         let data: any;
 
-        // Handle different content types
-        if (contentType?.includes("application/json")) {
-            // Parse JSON data
-            data = await req.json();
-            console.log("JSON Data Received:");
-        } else if (contentType?.includes("application/x-www-form-urlencoded")) {
-            // Parse form data
-            const formData = await req.formData();
-            data = Object.fromEntries(formData.entries());
-            console.log("Form Data Received:");
-        } else {
-            // Read as text for other content types
-            data = await req.text();
-            console.log("Text Data Received:");
-        }
+        data = await req.json();
 
         // Log the received data in a detailed format
         console.log(JSON.stringify(data, null, 2));
@@ -258,10 +244,15 @@ async function handleWebhook(req: Request) {
                         );
 
                     if (existingChainReward.length > 0) {
-                        // Update existing record with rewards
+                        // For existing chain record, add to existing rewards
+                        const currentChainRewards =
+                            existingChainReward[0]?.rewards || 0;
                         await db
                             .update(chainRewards)
-                            .set({ rewards: initialRewards })
+                            .set({
+                                rewards: currentChainRewards + initialRewards,
+                                updatedAt: new Date(),
+                            })
                             .where(
                                 eq(
                                     chainRewards.id,
@@ -269,14 +260,15 @@ async function handleWebhook(req: Request) {
                                 ),
                             );
                         console.log(
-                            `Updated rewards for existing chain record: ${initialRewards}`,
+                            `Updated chain rewards from ${currentChainRewards} to ${currentChainRewards + initialRewards}`,
                         );
                     } else {
-                        // Insert new record
+                        // Insert new record with initial rewards
                         await db.insert(chainRewards).values({
                             userAddress,
                             chainId,
                             rewards: initialRewards,
+                            lastTxHash: null,
                         });
                         console.log(
                             `Inserted new chain record with rewards: ${initialRewards}`,
@@ -443,6 +435,7 @@ async function handleWebhook(req: Request) {
                                     .update(chainRewards)
                                     .set({
                                         rewards: currentRewards + rewardsToAdd,
+                                        updatedAt: new Date(),
                                     })
                                     .where(
                                         eq(
@@ -452,32 +445,33 @@ async function handleWebhook(req: Request) {
                                     );
                             }
 
-                            // Also update total rewards in the users table
-                            // Get all chain rewards for this user
-                            const allChainRewards = await db
-                                .select({ rewards: chainRewards.rewards })
-                                .from(chainRewards)
-                                .where(
-                                    eq(chainRewards.userAddress, userAddress),
-                                );
-
-                            // Sum up all chain rewards
-                            const totalRewards = allChainRewards.reduce(
-                                (sum, record) => sum + (record.rewards || 0),
-                                0,
-                            );
-
-                            // Update the total in users table
-                            await db
-                                .update(users)
-                                .set({ rewards: totalRewards })
+                            // Update user's total rewards directly
+                            const userData = await db
+                                .select()
+                                .from(users)
                                 .where(eq(users.address, userAddress));
+
+                            if (userData.length > 0) {
+                                const currentUserRewards =
+                                    userData[0]?.rewards || 0;
+
+                                // Update the total in users table
+                                await db
+                                    .update(users)
+                                    .set({
+                                        rewards:
+                                            currentUserRewards + rewardsToAdd,
+                                        updatedAt: new Date(),
+                                    })
+                                    .where(eq(users.address, userAddress));
+
+                                console.log(
+                                    `Updated user rewards from ${currentUserRewards} to ${currentUserRewards + rewardsToAdd}`,
+                                );
+                            }
 
                             console.log(
                                 `Awarded ${rewardsToAdd} points to ${userAddress} on chain ${chainId} for ${eventType}`,
-                            );
-                            console.log(
-                                `Updated total rewards to ${totalRewards}`,
                             );
                         }
                     }
