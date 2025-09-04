@@ -223,10 +223,26 @@ async function handleWebhook(req: Request) {
                 }
 
                 // Create or update the user
-                await db
-                    .insert(users)
-                    .values({ address: userAddress })
-                    .onConflictDoNothing({ target: users.address });
+                const currentUser = await db
+                    .select()
+                    .from(users)
+                    .where(eq(users.address, userAddress));
+
+                if (currentUser.length === 0) {
+                    // New user - insert with initial rewards
+                    await db.insert(users).values({
+                        address: userAddress,
+                        rewards: initialRewards,
+                    });
+                } else {
+                    // Existing user - just update timestamp, don't add rewards
+                    await db
+                        .update(users)
+                        .set({
+                            updatedAt: new Date(),
+                        })
+                        .where(eq(users.address, userAddress));
+                }
 
                 // Create or update chain-specific rewards
                 if (initialRewards > 0) {
