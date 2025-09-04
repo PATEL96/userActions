@@ -209,33 +209,7 @@ async function handleWebhook(req: Request) {
                         .where(eq(users.address, userAddress));
                     const isNewUser = existingUser.length === 0;
 
-                    // Check if chain rewards exist for this chain
-                    const existingChainReward = await db
-                        .select()
-                        .from(chainRewards)
-                        .where(
-                            and(
-                                eq(chainRewards.userAddress, userAddress),
-                                eq(chainRewards.chainId, chainId),
-                            ),
-                        );
-                    const isNewChain = existingChainReward.length === 0;
-
-                    // Check if wallet_connected event has been recorded for this user (regardless of chain)
-                    const walletConnectedExists = await db
-                        .select()
-                        .from(userActions)
-                        .where(
-                            and(
-                                eq(userActions.userAddress, userAddress),
-                                eq(userActions.actionType, "wallet_connected"),
-                            ),
-                        );
-
-                    const isFirstConnection =
-                        walletConnectedExists.length === 0;
-
-                    if (isFirstConnection) {
+                    if (isNewUser) {
                         // First wallet connection ever, award 1000 points
                         initialRewards = 1000;
                         console.log(
