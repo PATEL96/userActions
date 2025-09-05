@@ -67,6 +67,7 @@ export const userActions = pgTable("user_actions", {
         .references(() => users.address),
     actionType: varchar({ length: 100 }).notNull(),
     actionData: text("action_data"),
+    points: integer().default(0).notNull(),
     performedAt: timestamp("performed_at").defaultNow().notNull(),
 });
 

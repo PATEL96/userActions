@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { users, userActions, chainRewards } from "./db/schema";
 import "dotenv/config";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 
 // Initialize database connection
 let pool: Pool;
@@ -79,7 +79,37 @@ async function handleLeaderboard(req: Request) {
             .orderBy(desc(users.rewards))
             .limit(15);
 
-        return new Response(JSON.stringify(topUsers), {
+        // Fetch action points for each user
+        const usersWithActionPoints = await Promise.all(
+            topUsers.map(async (user) => {
+                const actionPointsResult = await db
+                    .select({
+                        sum: sql`SUM(points)`,
+                    })
+                    .from(userActions)
+                    .where(eq(userActions.userAddress, user.address));
+
+                const actionPoints = actionPointsResult[0]?.sum || 0;
+
+                // Get action points grouped by action type
+                const actionsByType = await db
+                    .select({
+                        actionType: userActions.actionType,
+                        points: sql`SUM(points)`,
+                    })
+                    .from(userActions)
+                    .where(eq(userActions.userAddress, user.address))
+                    .groupBy(userActions.actionType);
+
+                return {
+                    ...user,
+                    actionPoints,
+                    actionsByType,
+                };
+            }),
+        );
+
+        return new Response(JSON.stringify(usersWithActionPoints), {
             status: 200,
             headers: { "Content-Type": "application/json" },
         });
@@ -132,11 +162,31 @@ async function handleGetUsers(req: Request) {
                 .from(userActions)
                 .where(eq(userActions.userAddress, userAddress));
 
+            // Calculate total action points
+            const actionPointsResult = await db
+                .select({
+                    sum: sql`SUM(points)`,
+                })
+                .from(userActions)
+                .where(eq(userActions.userAddress, userAddress));
+
+            // Get action points grouped by action type
+            const actionsByType = await db
+                .select({
+                    actionType: userActions.actionType,
+                    points: sql`SUM(points)`,
+                })
+                .from(userActions)
+                .where(eq(userActions.userAddress, userAddress))
+                .groupBy(userActions.actionType);
+
             // Combine all user data
             const response = {
                 user: userData[0],
                 chainRewards: userChainRewards,
                 actions: userActionsData,
+                totalActionPoints: actionPointsResult[0]?.sum || 0,
+                actionsByType: actionsByType,
             };
 
             return new Response(JSON.stringify(response), {
@@ -517,11 +567,36 @@ async function handleWebhook(req: Request) {
                         ? JSON.stringify({ ...data, chainId }) // Ensure chainId is included in action data
                         : String(data);
 
-                // Insert the action
+                // Determine points based on action type
+                let actionPoints = 0;
+
+                if (eventType === "wallet_connected" && initialRewards > 0) {
+                    // First-time wallet connection
+                    actionPoints = 1000;
+                } else if (eventType === "deposit_confirmed") {
+                    const depositAmount =
+                        typeof data.amount === "number"
+                            ? data.amount
+                            : typeof data.amount === "string"
+                              ? parseFloat(
+                                    data.amount.replace(/[^\d.-]/g, ""),
+                                ) || 0
+                              : 0;
+
+                    // Calculate points based on deposit amount
+                    if (depositAmount <= 1000) {
+                        actionPoints = Math.floor(depositAmount * 10);
+                    } else {
+                        actionPoints = Math.floor(depositAmount);
+                    }
+                }
+
+                // Insert the action with points
                 await db.insert(userActions).values({
                     userAddress,
                     actionType,
                     actionData,
+                    points: actionPoints,
                 });
 
                 console.log(`Action recorded for user ${userAddress}`);
@@ -600,6 +675,15 @@ async function handleWebhook(req: Request) {
             txHash: data.txHash || data.hash || data.transactionHash || null,
             totalRewards: userRewards,
             chainRewards: chainRewardsValue,
+            actionPoints: userAddress
+                ? await db
+                      .select({
+                          sum: sql`SUM(points)`,
+                      })
+                      .from(userActions)
+                      .where(eq(userActions.userAddress, userAddress))
+                      .then((result) => result[0]?.sum || 0)
+                : 0,
         };
         console.log(`Sending response: ${JSON.stringify(response)}`);
         return new Response(JSON.stringify(response), {

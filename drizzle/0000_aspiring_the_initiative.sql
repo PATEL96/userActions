@@ -1,1 +1,0 @@
-ALTER TABLE "users" ADD COLUMN "last_tx_hash" text;
