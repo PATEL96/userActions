@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { users, userActions, chainRewards } from "./db/schema";
 import "dotenv/config";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 // Initialize database connection
 let pool: Pool;
@@ -50,6 +50,11 @@ const server = Bun.serve({
             return handleGetUsers(req);
         }
 
+        // Leaderboard endpoint
+        if (url.pathname === "/leaderboard" && req.method === "GET") {
+            return handleLeaderboard(req);
+        }
+
         // Health check endpoint
         if (url.pathname === "/health") {
             console.log("Health check requested");
@@ -61,6 +66,34 @@ const server = Bun.serve({
         return new Response("Not Found", { status: 404 });
     },
 });
+
+// Handle leaderboard request
+async function handleLeaderboard(req: Request) {
+    try {
+        initializeDb();
+
+        // Get top 15 users with highest total points
+        const topUsers = await db
+            .select()
+            .from(users)
+            .orderBy(desc(users.rewards))
+            .limit(15);
+
+        return new Response(JSON.stringify(topUsers), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        console.error("Error retrieving leaderboard data:", error);
+        return new Response(
+            JSON.stringify({ error: "Failed to retrieve leaderboard data" }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            },
+        );
+    }
+}
 
 // Handle incoming webhook data
 // Handle get users request
